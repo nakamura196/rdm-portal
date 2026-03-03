@@ -33,13 +33,21 @@ export async function GET(
   }
 
   try {
+    const fetchHeaders: Record<string, string> = {
+      Authorization: `Bearer ${result.token}`,
+    };
+
+    // Forward Range header for iOS Safari compatibility
+    const rangeHeader = request.headers.get("Range");
+    if (rangeHeader) {
+      fetchHeaders["Range"] = rangeHeader;
+    }
+
     const res = await fetch(downloadUrl, {
-      headers: {
-        Authorization: `Bearer ${result.token}`,
-      },
+      headers: fetchHeaders,
     });
 
-    if (!res.ok) {
+    if (!res.ok && res.status !== 206) {
       return NextResponse.json(
         { error: `Audio fetch failed: ${res.status}` },
         { status: res.status }
@@ -48,14 +56,25 @@ export async function GET(
 
     const contentType =
       res.headers.get("content-type") || "audio/mpeg";
-    const body = res.body;
+    const responseHeaders: Record<string, string> = {
+      "Content-Type": contentType,
+      "Accept-Ranges": "bytes",
+      "Cache-Control": "private, max-age=3600",
+    };
 
-    return new NextResponse(body, {
-      headers: {
-        "Content-Type": contentType,
-        "Accept-Ranges": "bytes",
-        "Cache-Control": "private, max-age=3600",
-      },
+    // Forward content-length and content-range for Range requests
+    const contentLength = res.headers.get("content-length");
+    if (contentLength) {
+      responseHeaders["Content-Length"] = contentLength;
+    }
+    const contentRange = res.headers.get("content-range");
+    if (contentRange) {
+      responseHeaders["Content-Range"] = contentRange;
+    }
+
+    return new NextResponse(res.body, {
+      status: res.status,
+      headers: responseHeaders,
     });
   } catch (error) {
     console.error("Audio proxy error:", error);
